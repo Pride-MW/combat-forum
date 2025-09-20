@@ -1,192 +1,161 @@
 <!DOCTYPE html>
 <html lang="fr">
 <head>
-<meta charset="UTF-8">
-<title>Combat Tour par Tour</title>
-<style>
-body { font-family: Arial; padding: 20px; background: #eee; }
-select, button { padding: 8px 12px; margin: 10px 0; font-size: 16px; }
-button { cursor: pointer; }
-.combat-log { background: #fff; border: 1px solid #444; border-radius: 5px; padding: 15px; margin-top: 20px; font-family: monospace; max-height: 400px; overflow-y: auto; }
-.super { color: darkred; font-weight: bold; }
-.resist { color: darkblue; font-weight: bold; }
-</style>
+  <meta charset="UTF-8">
+  <title>Combat avec Google Sheets</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.0/papaparse.min.js"></script>
 </head>
 <body>
 
-<h1>⚔️ Combat Tour par Tour</h1>
+<h1>⚔️ Combat</h1>
 
-<div>
-<label for="joueurSelect">Choisis ton personnage :</label><br>
+<label for="joueurSelect">Choisir un joueur :</label>
 <select id="joueurSelect"></select><br><br>
 
-<label for="attaqueSelect">Choisis ton attaque :</label><br>
-<select id="attaqueSelect">
-<option value="physique">💪 Attaque physique</option>
-<option value="magique">✨ Attaque magique</option>
-<option value="rapide">⚡ Attaque rapide</option>
-</select><br><br>
+<label for="monstreSelect">Choisir un monstre :</label>
+<select id="monstreSelect"></select><br><br>
 
-<label for="competenceSelect">Choisis une compétence spéciale :</label><br>
-<select id="competenceSelect">
-<option value="">Aucune</option>
-</select><br><br>
+<label for="competenceSelect">Choisir une compétence :</label>
+<select id="competenceSelect"></select><br><br>
 
-<button id="startCombat">Commencer le combat</button>
-<button id="nextTurn" style="display:none;">Prochain tour</button>
-</div>
+<button id="startCombat">Lancer l'attaque</button>
 
-<div class="combat-log" id="log"></div>
+<div id="log"></div>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
 <script>
-// ==========================
-// Bases
-// ==========================
-let joueurs=[], creatures=[], competences=[];
-let combatState={};
+// URLs des feuilles Google Sheets publiées en CSV
+const urlJoueurs = 'URL_CSV_JOUEURS';
+const urlMonstres = 'URL_CSV_MONSTRES';
+const urlCompetences = 'URL_CSV_COMPETENCES';
 
-// --- Pseudo Forumactif ---
-function getPseudoForumactif() {
-  const elem = document.querySelector('#username') || document.querySelector('.pseudo_membre');
-  return elem? elem.textContent.trim() : "Joueur";
+let joueurs = [], monstres = [], competences = [];
+
+// Fonction pour charger les données CSV
+async function chargerCSV(url, type) {
+  const response = await fetch(url);
+  const csv = await response.text();
+  const parsed = Papa.parse(csv, { header: true, skipEmptyLines: true });
+  if (type === 'joueurs') joueurs = parsed.data;
+  else if (type === 'monstres') monstres = parsed.data;
+  else if (type === 'competences') competences = parsed.data;
 }
 
-// --- Charger CSV ---
-async function chargerCSV(url,type){
-  const resp = await fetch(https://docs.google.com/spreadsheets/d/e/2PACX-1vQz8aAo_C2HqanHQ4DaAFhyhY-jQDqockhLnWd5DDRVx9ZvuyHqKtgI1r88wUzw5rjLts5FIg5-U_fk/pub?output=csv);
-  const csv = await resp.text();
-  const parsed = Papa.parse(csv,{header:true, skipEmptyLines:true});
-  if(type==="joueurs") joueurs=parsed.data;
-  else if(type==="creatures") creatures=parsed.data;
-  else if(type==="competences") competences=parsed.data;
-}
-
-// --- Initialisation ---
+// Initialisation
 async function init() {
-  await chargerCSV("URL_CSV_JOUEURS","joueurs");
-  await chargerCSV("URL_CSV_MONSTRES","creatures");
-  await chargerCSV("URL_CSV_COMPETENCES","competences");
-  remplirMenuJoueurs();
+  await chargerCSV(urlJoueurs, 'joueurs');
+  await chargerCSV(urlMonstres, 'monstres');
+  await chargerCSV(urlCompetences, 'competences');
+  remplirMenus();
 }
+
+// Remplir les menus déroulants
+function remplirMenus() {
+  const joueurSelect = document.getElementById('joueurSelect');
+  joueurs.forEach((joueur, index) => {
+    const option = document.createElement('option');
+    option.value = index;
+    option.textContent = `${joueur.nom} (PV: ${joueur.pv}, Atq: ${joueur.attaqueArme}, F: ${joueur.force})`;
+    joueurSelect.appendChild(option);
+  });
+
+  const monstreSelect = document.getElementById('monstreSelect');
+  monstres.forEach((monstre, index) => {
+    const option = document.createElement('option');
+    option.value = index;
+    option.textContent = `${monstre.nom} (PV: ${monstre.pv}, F: ${monstre.force}, Def: ${monstre.defense})`;
+    monstreSelect.appendChild(option);
+  });
+
+  const competenceSelect = document.getElementById('competenceSelect');
+  competences.forEach((competence, index) => {
+    const option = document.createElement('option');
+    option.value = index;
+    option.textContent = `${competence.nom} (${competence.type})`;
+    competenceSelect.appendChild(option);
+  });
+}
+
+// Fonction pour appliquer les faiblesses et affinités
+function appliquerMultiplicateur(attaqueType, monstre) {
+  if (monstre.faiblesse && monstre.faiblesse.split(',').includes(attaqueType)) {
+    return { mult: 1.5, msg: 'Super efficace !' };
+  }
+  if (monstre.affinite && monstre.affinite.split(',').includes(attaqueType)) {
+    return { mult: 0.5, msg: 'Peu efficace...' };
+  }
+  return { mult: 1, msg: '' };
+}
+
+// Fonction pour calculer les dégâts d'une attaque simple
+function attaqueSimple(joueur, monstre) {
+  const base = parseInt(joueur.attaqueArme) + parseInt(joueur.force) / 2;
+  const { mult, msg } = appliquerMultiplicateur('physique', monstre);
+  const degats = Math.round(base * mult);
+  monstre.pv -= degats;
+  return `${joueur.nom} utilise Attaque simple → ${degats} dégâts (${msg}), PV ${monstre.nom}: ${monstre.pv}`;
+}
+
+// Fonction pour calculer les dégâts d'une attaque rapide
+function attaqueRapide(joueur, monstre) {
+  const base = parseInt(joueur.vitesse) + parseInt(joueur.attaqueArme) / 2;
+  const { mult, msg } = appliquerMultiplicateur('physique', monstre);
+  const degats = Math.round(base * mult);
+  monstre.pv -= degats;
+  return `${joueur.nom} utilise Attaque rapide → ${degats} dégâts (${msg}), PV ${monstre.nom}: ${monstre.pv}`;
+}
+
+// Fonction pour utiliser une compétence spéciale
+function utiliserCompetence(joueur, monstre, competenceIndex) {
+  if (competenceIndex === '') return 'Veuillez choisir une compétence.';
+  const c = competences[competenceIndex];
+  let texte = '', degats = 0;
+  if (c.type === 'attaque' || c.type === 'magique') {
+    degats = Math.round(parseInt(joueur[c.base]) * parseFloat(c.multiplicateur));
+    const { mult, msg } = appliquerMultiplicateur(c.type === 'attaque' ? 'physique' : 'magique', monstre);
+    degats = Math.round(degats * mult);
+    monstre.pv -= degats;
+    texte = `${joueur.nom} utilise ${c.nom} → ${degats} dégâts (${msg}), PV ${monstre.nom}: ${monstre.pv}`;
+  }
+  if (c.type === 'soin') {
+    const soin = Math.round(parseInt(joueur[c.base]) * parseFloat(c.multiplicateur) / 10);
+    joueur.pv += soin;
+    texte = `${joueur.nom} utilise ${c.nom} 💖 +${soin} PV (PV actuel: ${joueur.pv})`;
+  }
+  if (c.type === 'buff') {
+    joueur[c.base] = Math.round(parseInt(joueur[c.base]) * parseFloat(c.multiplicateur));
+    texte = `${joueur.nom} utilise ${c.nom} 💪 Stat ${c.base} augmentée à ${joueur[c.base]}`;
+  }
+  if (c.type === 'malus') {
+    monstre[c.base] = Math.round(parseInt(monstre[c.base]) * parseFloat(c.multiplicateur));
+    texte = `${joueur.nom} utilise ${c.nom} ⚠️ ${monstre.nom} ${c.base} réduit à ${monstre[c.base]}`;
+  }
+  return texte;
+}
+
+// Événement au clic du bouton
+document.getElementById('startCombat').addEventListener('click', () => {
+  const joueur = joueurs[document.getElementById('joueurSelect').value];
+  const monstre = monstres[document.getElementById('monstreSelect').value];
+  const action = document.getElementById('attaqueSelect').value;
+  const competenceIndex = document.getElementById('competenceSelect').value;
+  let log = '';
+
+  if (action === 'simple') log = attaqueSimple(joueur, monstre);
+  else if (action === 'rapide') log = attaqueRapide(joueur, monstre);
+  else if (action === 'competence') log = utiliserCompetence(joueur, monstre, competenceIndex);
+  else log = 'Action invalide.';
+
+  document.getElementById('log').innerHTML = log;
+
+  if (parseInt(monstre.pv) <= 0) {
+    document.getElementById('log').innerHTML += `<br>${joueur.nom} a vaincu ${monstre.nom} !`;
+  }
+});
+
+// Initialiser le jeu
 init();
 
-// --- Menus ---
-function remplirMenuJoueurs(){
-  const sel = document.getElementById("joueurSelect");
-  joueurs.forEach((j,i)=>{
-    const opt = document.createElement("option");
-    opt.value=i;
-    opt.textContent=j.nom+" (PV:"+j.pv+", Atq:"+j.attaque+", Int:"+j.intelligence+")";
-    sel.appendChild(opt);
-  });
-  remplirCompetences(joueurs[0].nom);
-}
-
-function remplirCompetences(nomJoueur){
-  const sel = document.getElementById("competenceSelect");
-  sel.innerHTML='<option value="">Aucune</option>';
-  competences.filter(c=>c.personnage===nomJoueur).forEach((c,i)=>{
-    const opt=document.createElement("option");
-    opt.value=i;
-    opt.textContent=c.nom+" ("+c.description+")";
-    sel.appendChild(opt);
-  });
-}
-
-document.getElementById("joueurSelect").addEventListener("change",e=>{
-  const nom=joueurs[e.target.value].nom;
-  remplirCompetences(nom);
-});
-
-// ==========================
-// Combat
-// ==========================
-function appliquerMultiplicateur(creature,type){
-  if(creature.faiblesse && creature.faiblesse.split(",").includes(type))
-    return {mult:1.5,message:'<span class="super">🔥 Super efficace !</span>'};
-  if(creature.resistanceType && creature.resistanceType.split(",").includes(type))
-    return {mult:0.5,message:'<span class="resist">🛡️ Peu efficace...</span>'};
-  return {mult:1,message:""};
-}
-
-function calculDegats(attaquant,cible,type){
-  let degats=0;
-  if(type==="physique") degats=parseInt(attaquant.attaque)-parseInt(cible.defense)/2;
-  else if(type==="magique") degats=parseInt(attaquant.intelligence)-parseInt(cible.resistance)/2;
-  else if(type==="rapide") degats=parseInt(attaquant.attaque)/2;
-  if(degats<1) degats=1;
-  const {mult,message} = appliquerMultiplicateur(cible,type);
-  degats=Math.round(degats*mult*(1+Math.random()*0.2-0.1));
-  const critique=Math.random()<0.1;
-  if(critique) degats*=2;
-  return {degats,critique,message};
-}
-
-function appliquerCompetence(joueur,creature,index){
-  if(index==="") return {texte:"",degats:0};
-  const c = competences[index];
-  let base=parseInt(joueur[c.baseValeur]);
-  let valeur=0, texte="";
-  if(c.type==="attaque"||c.type==="magique"){
-    valeur=Math.round(base*parseFloat(c.multiplicateur));
-    const {mult,message}=appliquerMultiplicateur(creature,c.type);
-    valeur=Math.round(valeur*mult);
-    texte=`${joueur.nom} utilise ${c.nom} → ${valeur} dégâts ! ${message}`;
-  }
-  if(c.type==="soin"){
-    const soin=parseInt(c.multiplicateur);
-    joueur.pv+=soin;
-    texte=`${joueur.nom} utilise ${c.nom} 💖 (+${soin} PV)`;
-    valeur=0;
-  }
-  return {texte,degats:valeur};
-}
-
-// --- Démarrer combat ---
-document.getElementById("startCombat").addEventListener("click",()=>{
-  const pseudo=getPseudoForumactif();
-  const joueur={...joueurs[document.getElementById("joueurSelect").value]};
-  joueur.nom=pseudo;
-  const creature={...creatures[0]}; // monstre défini par MJ
-  combatState={joueur,pvJoueur:parseInt(joueur.pv),creature,pvCreature:parseInt(creature.pv),
-               tourJoueur:(parseInt(joueur.vitesse)>=parseInt(creature.vitesse)),log:""};
-  document.getElementById("startCombat").style.display="none";
-  document.getElementById("nextTurn").style.display="inline-block";
-  document.getElementById("log").innerHTML=`⚔️ ${joueur.nom} affronte ${creature.nom}!<br><br>`;
-});
-
-// --- Tour suivant ---
-document.getElementById("nextTurn").addEventListener("click",()=>{
-  const joueur=combatState.joueur;
-  const creature=combatState.creature;
-  const choixAttaque=document.getElementById("attaqueSelect").value;
-  const indexCompetence=document.getElementById("competenceSelect").value;
-  let log=combatState.log;
-
-  if(combatState.pvJoueur<=0 || combatState.pvCreature<=0) return;
-
-  if(combatState.tourJoueur){
-    let res = indexCompetence!=="" ? appliquerCompetence(joueur,creature,indexCompetence)
-                                   : calculDegats(joueur,creature,choixAttaque);
-    combatState.pvCreature -= res.degats;
-    log+=res.texte || `${joueur.nom} attaque (${choixAttaque}) → ${res.degats} dégâts${res.critique?" ⚡ CRITIQUE!":""}. ${res.message} ${creature.nom} a ${Math.max(0,combatState.pvCreature)} PV.<br>`;
-  } else {
-    let res = calculDegats(creature,joueur,"physique");
-    combatState.pvJoueur -= res.degats;
-    log+=`${creature.nom} attaque → ${res.degats} dégâts${res.critique?" ⚡ CRITIQUE!":""}. ${joueur.nom} a ${Math.max(0,combatState.pvJoueur)} PV.<br>`;
-  }
-
-  combatState.tourJoueur = !combatState.tourJoueur;
-  combatState.log=log;
-  document.getElementById("log").innerHTML=log;
-
-  if(combatState.pvJoueur<=0 || combatState.pvCreature<=0){
-    log+=combatState.pvJoueur>0 ? `🏆 ${joueur.nom} remporte le combat !` : `💀 ${creature.nom} gagne le combat...`;
-    document.getElementById("log").innerHTML=log;
-    document.getElementById("nextTurn").style.display="none";
-  }
-});
 </script>
+
 </body>
 </html>
