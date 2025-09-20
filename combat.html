@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<title>Combat Prototype</title>
+<style>
+body { font-family: Arial; padding: 20px; background: #eee; }
+select, button { padding: 8px 12px; margin: 5px 0; font-size: 16px; }
+button { cursor: pointer; }
+#log { border:1px solid #444; padding:10px; margin-top:10px; max-height:400px; overflow-y:auto; background:#fff;}
+</style>
+</head>
+<body>
+
+<h1>⚔️ Combat Prototype</h1>
+
+<label for="joueurSelect">Choisir un joueur :</label>
+<select id="joueurSelect"></select><br><br>
+
+<label for="monstreSelect">Choisir un monstre :</label>
+<select id="monstreSelect"></select><br><br>
+
+<label for="attaqueSelect">Action :</label>
+<select id="attaqueSelect">
+  <option value="physique">Attaque Physique</option>
+  <option value="magique">Attaque Magique</option>
+  <option value="competence">Compétence spéciale</option>
+</select><br><br>
+
+<label for="competenceSelect">Choisir une compétence :</label>
+<select id="competenceSelect">
+  <option value="">Aucune</option>
+</select><br><br>
+
+<button id="startCombat">Lancer l'action</button>
+
+<div id="log"></div>
+
+<script>
+// --------------------
+// Liens CSV Google Sheets (à remplacer par les vôtres)
+// --------------------
+const urlJoueurs = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQz8aAo_C2HqanHQ4DaAFhyhY-jQDqockhLnWd5DDRVx9ZvuyHqKtgI1r88wUzw5rjLts5FIg5-U_fk/pub?gid=1333479409&single=true&output=csv";
+const urlMonstres = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQz8aAo_C2HqanHQ4DaAFhyhY-jQDqockhLnWd5DDRVx9ZvuyHqKtgI1r88wUzw5rjLts5FIg5-U_fk/pub?gid=0&single=true&output=csv";
+const urlCompetences = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQz8aAo_C2HqanHQ4DaAFhyhY-jQDqockhLnWd5DDRVx9ZvuyHqKtgI1r88wUzw5rjLts5FIg5-U_fk/pub?gid=277291418&single=true&output=csv";
+
+let joueurs=[], monstres=[], competences=[];
+
+// --------------------
+// Charger CSV en JSON
+// --------------------
+async function chargerCSV(url){
+  const res = await fetch(url);
+  const text = await res.text();
+  const lines = text.trim().split("\n");
+  const headers = lines[0].split(",").map(h=>h.trim());
+  const data = lines.slice(1).map(l=>{
+    const values = l.split(",").map(v=>v.trim());
+    let obj = {};
+    headers.forEach((h,i)=>{
+      if(h==="faiblesse" || h==="affinite"){
+        obj[h] = values[i] ? values[i].split(";").map(s=>s.trim()) : [];
+      } else {
+        obj[h] = isNaN(values[i]) ? values[i] : parseFloat(values[i]);
+      }
+    });
+    return obj;
+  });
+  return data;
+}
+
+// --------------------
+// Initialisation
+// --------------------
+async function init(){
+  joueurs = await chargerCSV(urlJoueurs);
+  monstres = await chargerCSV(urlMonstres);
+  competences = await chargerCSV(urlCompetences);
+
+  // Remplissage menus
+  const joueurSelect = document.getElementById("joueurSelect");
+  joueurs.forEach((j,i)=>{
+    const opt=document.createElement("option");
+    opt.value=i; opt.textContent=j.nom; joueurSelect.appendChild(opt);
+  });
+
+  const monstreSelect = document.getElementById("monstreSelect");
+  monstres.forEach((m,i)=>{
+    const opt=document.createElement("option");
+    opt.value=i; opt.textContent=m.nom; monstreSelect.appendChild(opt);
+  });
+
+  const competenceSelect = document.getElementById("competenceSelect");
+  function remplirCompetences(nom){
+    competenceSelect.innerHTML='<option value="">Aucune</option>';
+    competences.filter(c=>c.personnage===nom).forEach(c=>{
+      const opt=document.createElement("option");
+      opt.value=c.nom;  // stocker le nom au lieu de l'index
+      opt.textContent=c.nom;
+      competenceSelect.appendChild(opt);
+    });
+  }
+  remplirCompetences(joueurs[0].nom);
+  joueurSelect.addEventListener("change",e=>{
+    remplirCompetences(joueurs[e.target.value].nom);
+  });
+
+  // Bouton action
+  document.getElementById("startCombat").addEventListener("click",()=>{
+    const j = joueurs[joueurSelect.value];
+    const m = monstres[monstreSelect.value];
+    const action = document.getElementById("attaqueSelect").value;
+    const competenceNom = document.getElementById("competenceSelect").value;
+    let log="";
+    if(action==="physique") log=attaquePhysique(j,m);
+    else if(action==="magique") log=attaqueMagique(j,m);
+    else if(action==="competence") log=utiliserCompetence(j,m,competenceNom);
+    else log="Action invalide";
+    document.getElementById("log").innerHTML=log;
+    if(m.pv<=0) document.getElementById("log").innerHTML+=`<br>${j.nom} a vaincu ${m.nom} !`;
+  });
+}
+
+// --------------------
+// Fonctions combat
+// --------------------
+function appliquerMultiplicateur(attaqueType, monstre){
+  if(monstre.faiblesse.includes(attaqueType)) return {mult:1.5,msg:"Super efficace !"};
+  if(monstre.affinite.includes(attaqueType)) return {mult:0.5,msg:"Peu efficace..."};
+  return {mult:1,msg:""};
+}
+
+function attaquePhysique(j,m){
+  let base = j.attaqueArme + j.force - m.defense;
+  const { mult, msg } = appliquerMultiplicateur("physique", m);
+  const degats = Math.max(1, Math.round(base*mult));
+  m.pv -= degats;
+  return `${j.nom} attaque physiquement → ${degats} dégâts (${msg}) PV ${m.nom}: ${m.pv} / PM ${j.pm}`;
+}
+
+function attaqueMagique(j,m){
+  let base = j.intelligence - m.resistance;
+  const { mult, msg } = appliquerMultiplicateur("magique", m);
+  const degats = Math.max(1, Math.round(base*mult));
+  m.pv -= degats;
+  return `${j.nom} attaque magiquement → ${degats} dégâts (${msg}) PV ${m.nom}: ${m.pv} / PM ${j.pm}`;
+}
+
+function utiliserCompetence(j,m,nomCompetence){
+  if(nomCompetence==="") return "Choisissez une compétence";
+  const c = competences.find(comp => comp.nom===nomCompetence && comp.personnage===j.nom);
+  if(!c) return "Compétence introuvable !";
+  if(j.pm<c.coutPM) return `${j.nom} n'a pas assez de PM pour utiliser ${c.nom} !`;
+  j.pm -= c.coutPM;
+  let texte="";
+  if(c.type==="attaque"||c.type==="magique"){
+    const base = c.type==="attaque" ? j[c.base]-m.defense : j[c.base]-m.resistance;
+    const { mult,msg } = appliquerMultiplicateur(c.type, m);
+    const degats = Math.max(1, Math.round(base*mult*c.multiplicateur));
+    m.pv -= degats;
+    texte = `${j.nom} utilise ${c.nom} (-${c.coutPM} PM) → ${degats} dégâts (${msg}) PV ${m.nom}: ${m.pv}, PM ${j.pm}`;
+  }
+  if(c.type==="soin"){
+    const soin = Math.round(j[c.base]*c.multiplicateur/3);
+    j.pv += soin;
+    texte = `${j.nom} utilise ${c.nom} (-${c.coutPM} PM) 💖 +${soin} PV (PM: ${j.pm})`;
+  }
+  if(c.type==="buff"){
+    j[c.base] = Math.round(j[c.base]*c.multiplicateur);
+    texte = `${j.nom} utilise ${c.nom} (-${c.coutPM} PM) 💪 ${c.base} augmentée à ${j[c.base]} (PM: ${j.pm})`;
+  }
+  if(c.type==="malus"){
+    m[c.base] = Math.round(m[c.base]*c.multiplicateur);
+    texte = `${j.nom} utilise ${c.nom} (-${c.coutPM} PM) ⚠️ ${m.nom} ${c.base} réduit à ${m[c.base]} (PM: ${j.pm})`;
+  }
+  return texte;
+}
+
+// --------------------
+// Lancement
+// --------------------
+init();
+</script>
+
+</body>
+</html>
+
